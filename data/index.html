@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=windows-1252">
+<style type="text/css">
+
+html, body {height: 100%;margin: 0;overflow: hidden;}
+#sensorValue {font-size:200px;position: absolute;top:400px;right: 5px;color: rgba(255,255,255,1)}
+#settingsBtn,#close, #ok, #uploadBtn {position: absolute;top:0px;left: 0px;color: rgba(255,255,255,0.5);font-size:10em; visibility: hidden;}
+#ok, #uploadBtn {top:300px;left: 0px;}
+#settings {width: 100%; position: absolute;top:0px;left: 0px;background: rgba(0, 0, 0, 0.2); visibility: hidden;}
+
+.section {width: 100%; display:block; border: 1px solid #44CC44;display:block; margin-left:auto; margin-right:auto;text-align: center;background-color: #020;margin-bottom: 15px;}
+	.caption {width: 100%; display:block;color: #55BB55; font-size: 3em; text-align: center;}
+	.input {height: 4em;}
+		.slider{width: 70%;height: 3em;float: left;position: relative;top: 50%;transform: translate(0, -50%);}
+		.valueBox{width: 20%; color: #55BB55; font-size: 3em; float: right;border-left: solid #6A6 3px;position: relative;top: 50%;transform: translate(0, -50%);}
+
+.sub {width: 85%; height: 100% display:block; margin-left:auto; margin-right:0; padding-right: 10px; visibility: hidden; position:absolute; top: 30px; right: 0px}
+.subContainer {width: 100%; height: 100%; overflow-y: scroll; padding-right: 100px; box-sizing: content-box;}
+
+
+#fileTable {font-size: 2em; color: #5B5; width: 100%; border-collapse: collapse;}
+td, th {border: 1px solid #0A0; text-align: left; padding: 8px}
+th {background-color: #010; color: #4F4}
+tr:nth-child(even) {background-color: #030;}
+tr:nth-child(odd) {background-color: #020;}
+a:link {color: #0F0}
+a:visited {color: #0A0}
+
+
+input[type=submit] {font-size: 2em; border: 3px solid #2A2; color: #0F0; background: #030; padding: 30px 50px; margin: 20px;}
+input[type=submit]:active {background: #F05;color: #0F0;}
+input[type=button] {font-size: 2em; border: 3px solid #2A2; color: #0F0; background: #030; padding: 30px 50px; margin: 20px;}
+input[type=button]:active {background: #F05;color: #0F0;}
+input[type=file] {display: none;}
+.fileUploadLabel {font-size: 2em; border: 3px solid #2A2; color: #0F0; background: #030; padding: 30px 50px; margin: 20px; user-select: none; -moz-user-select: none;}
+.fileUploadLabel:active {background: #F05;color: #0F0;}
+</style>
+
+<script type="text/javascript" src="smoothie.js"></script>
+<script src="jquery.min.js"></script>
+<script type="text/javascript">
+var samplingRate = 50;
+var ip = location.host
+var port = "81"
+var request_data_interval
+var fileTable = [];
+var data = new TimeSeries();
+var ws = new WebSocket("ws://"+ ip +":" + port)
+var chart;
+
+ws.onopen = function(){
+	request_data_interval = window.setTimeout(requestData, samplingRate);
+};
+
+ws.onmessage = function (evt){
+
+	if (evt.data[0] == "F"){
+		fileData = evt.data.substring(2).split("|");
+		if(fileData.length > 1){
+			fileTable.push(fileData);
+		} else{
+			createFileTable();
+		}
+	} else{
+		reading = Math.round (Number(evt.data) / 2.3)
+
+		data.append(new Date().getTime(), reading);
+		$("#sensorValue").html(reading);
+	}
+};
+
+ws.onclose = function(){
+  window.clearInterval(request_data_interval)
+};
+
+window.addEventListener('resize', function(event){
+	resizeElements();
+});
+
+function requestData(){
+	ws.send("gimme");
+	ws.onopen();
+}
+
+function resizeElements(){
+	docHeight = $("body").height();
+	$("#chart, #settings").css("height", docHeight);
+	$("#settingsSub").css("height", docHeight - 60);
+}
+
+function bytesToSize(bytes) {
+  const sizes = [' Bytes', ' KB', ' MB', ' GB', ' TB']
+  if (bytes == 0) return 'n/a'
+  const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)), 10)
+  if (i === 0) return `${bytes}${sizes[i]}`
+  return `${(bytes / (1024 ** i)).toFixed(1)}${sizes[i]}`
+}
+
+function createFileTable() {
+	container = $("#uploadSub");
+	oldTable = $("#fileTable");
+	oldTable.remove();
+
+	table = $("<table> </table>");
+	head = $("<tr><th>Name</th><th>Size</th><th>Action</th></tr>");
+	table.append(head);
+	table.attr("id", "fileTable");
+
+	var total = 3125248;
+	var used = 0;
+	var free;
+
+	for (let file of fileTable){
+		name = file[0];
+		row = $("<tr></tr>");
+		link = $("<a></a>").attr("href", name).html(name);
+		nameCol = $("<td></td>").append(link);
+		sizeCol = $("<td></td>").html(file[1]);
+		actionCol = $("<td></td>");
+
+		row.append(nameCol, sizeCol, actionCol);
+		table.append(row);
+
+		used += Number(file[1]);
+	}
+
+	free = total - used;
+
+	footRow = $("<tr></tr>");
+	footCol = $("<td></td>").attr("colspan", "3");
+	footCol.html("Mem free: " + bytesToSize(free));
+	footRow.append(footCol);
+	table.append(footRow);
+
+	container.append(table);
+	fileTable = []
+
+
+}
+
+function createTimeline() {
+	chart = new SmoothieChart({millisPerPixel:8,maxValue:1023,minValue:0,responsive:true});
+	console.log(chart);
+	chart.addTimeSeries(data, {strokeStyle: 'rgba(0, 255, 0, 1)',fillStyle: 'rgba(0, 255, 0, 0.2)',lineWidth: 1});
+	chart.streamTo(document.getElementById("chart"), 10);
+	chart.options.millisPerPixel = 10;
+	resizeElements();
+
+	$("#settingsBtn").css("visibility", "visible");
+
+	$("#inputSamplingRate").attr("value", samplingRate);
+	$("#valueSamplingRate").html(samplingRate);
+	$("#scale").attr("value", samplingRate);
+	$("#scaleVal").html(samplingRate);
+
+	$("#inputScrollSpeed").attr("value", chart.options.millisPerPixel);
+	$("#valueScrollSpeed").html(chart.options.millisPerPixel);
+
+	$("#inputTimelineSpacing").attr("value", chart.options.grid.millisPerLine);
+	$("#valueTimelineSpacing").html(chart.options.grid.millisPerLine);
+
+	$("#min").attr("value", chart.options.minValue);
+	$("#minVal").html(chart.options.minValue);
+
+	$("#max").attr("value", chart.options.maxValue);
+	$("#maxVal").html(chart.options.maxValue);
+	
+
+
+	$("#scale").on("input", function(){
+		val = $("#scale").val();
+		$("#scaleVal").html(val);
+
+		samplingRate = val;
+		chart.options.millisPerPixel = val / 5;
+		chart.options.grid.millisPerLine = val * 20;
+
+		$("#inputSamplingRate").attr("value", samplingRate);
+		$("#valueSamplingRate").html(samplingRate);
+
+		$("#inputScrollSpeed").attr("value", chart.options.millisPerPixel);
+		$("#valueScrollSpeed").html(chart.options.millisPerPixel);
+
+		$("#inputTimelineSpacing").attr("value", chart.options.grid.millisPerLine);
+		$("#valueTimelineSpacing").html(chart.options.grid.millisPerLine);
+	});
+
+	$("#inputSamplingRate").on("input", function(){
+		val = $("#inputSamplingRate").val();
+		$("#valueSamplingRate").html(val);
+		samplingRate = val;
+	});
+
+	$("#inputScrollSpeed").on("input", function(){
+		val = $("#inputScrollSpeed").val();
+		chart.options.millisPerPixel = val;
+		$("#valueScrollSpeed").html(chart.options.millisPerPixel);
+	});
+
+	$("#inputTimelineSpacing").on("input", function(){
+		val = $("#inputTimelineSpacing").val();
+		chart.options.grid.millisPerLine = val;
+		$("#valueTimelineSpacing").html(chart.options.grid.millisPerLine);
+	});
+
+	$("#min").on("input", function(){
+		val = $("#min").val();
+		$("#minVal").html(val);
+		chart.options.minValue = val;
+	});
+
+	$("#max").on("input", function(){
+		val = $("#max").val();
+		$("#maxVal").html(val);
+		chart.options.maxValue = val;
+	});
+
+
+
+	$("#settingsBtn").on("click", function(){
+		$(".settingsb-1").css("visibility", "visible");
+		$(".settingsb-0").css("visibility", "hidden");
+	});
+
+	$("#close").on("click", function(){
+		$(".closeb-1").css("visibility", "visible");
+		$(".closeb-0").css("visibility", "hidden");
+	});
+
+	$("#uploadBtn").on("click", function(){
+		$(".uploadb-1").css("visibility", "visible");
+		$(".uploadb-0").css("visibility", "hidden");
+		fileTable = [];
+		ws.send("F");
+	});
+}
+</script>
+</head>
+<body onload="createTimeline()">
+<canvas id="chart" style="width:100%"></canvas>
+
+<div id="sensorValue"></div>
+<div id="settingsBtn" class="settingsb-0 closeb-1">&#9883;</div>
+
+<div id="settings" class="settingsb-1 closeb-0">
+	<div id="close" class="settingsb-1 closeb-0">&#10005;</div>
+	<div id="uploadBtn" class="settingsb-1 closeb-0 uploadb-0">U</div>
+
+	<div id="uploadSub" class="sub  settingsb-0 closeb-0 uploadb-1">
+		<form action="upload" method="post" enctype="multipart/form-data">
+			<label for="fileToUpload" class="fileUploadLabel">
+				Select files
+			</label>
+			<input type="file" name="fileToUpload" id="fileToUpload" multiple>
+			<input type="submit" value="Upload" class="uploadButton" name="submit">
+		</form>
+
+
+	</div>
+
+	<div id="settingsSub" class="sub  settingsb-1 closeb-0 uploadb-0">
+		<div class="subContainer">
+			<div class="section">
+				<div class="caption">Scale sampling</div>
+				<div class="input">
+					<input type="range" id="scale" min="1" max="10000" class="slider">
+					<div id="scaleVal" class="valueBox">666</div>
+				</div>
+			</div>
+			<div class="section">
+				<div class="caption">Sampling rate</div>
+				<div class="input">
+					<input type="range" id="inputSamplingRate" min="1" max="10000" class="slider">
+					<div id="valueSamplingRate" class="valueBox">666</div>
+				</div>
+			</div>
+			<div class="section">
+				<div class="caption">Scroll speed [ms/pixel]</div>
+				<div class="input">
+					<input type="range" id="inputScrollSpeed" min="1" max="10000" class="slider">
+					<div id="valueScrollSpeed" class="valueBox">666</div>
+				</div>
+			</div>
+			<div class="section">
+				<div class="caption">Timeline spacing [ms/div]</div>
+				<div class="input">
+					<input type="range" id="inputTimelineSpacing" min="100" max="100000"  class="slider">
+					<div id="valueTimelineSpacing" class="valueBox">666</div>
+				</div>
+			</div>
+			<div class="section">
+				<div class="caption">Min</div>
+				<div class="input">
+					<input type="range" id="min" min="0" max="1024"  class="slider">
+					<div id="minVal" class="valueBox">0</div>
+				</div>
+			</div>
+			<div class="section">
+				<div class="caption">Max</div>
+				<div class="input">
+					<input type="range" id="max" min="0" max="1024"  class="slider">
+					<div id="maxVal" class="valueBox">1024</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body></html>
